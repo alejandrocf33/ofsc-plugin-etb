@@ -155,6 +155,10 @@
             Reintentar
         </button>
         
+        <button id="btnClose" class="btn-retry" style="display:none; background-color: #28a745;">
+            Cerrar y Regresar
+        </button>
+        
         <div id="debugLog" class="debug-log"></div>
     </div>
 
@@ -188,7 +192,8 @@
             attemptsDisplay: document.getElementById('attemptsDisplay'),
             resultMessage: document.getElementById('resultMessage'),
             debugLog: document.getElementById('debugLog'),
-            btnRetry: document.getElementById('btnRetry')
+            btnRetry: document.getElementById('btnRetry'),
+            btnClose: document.getElementById('btnClose')
         };
 
         // ============= DEBUG LOG =============
@@ -347,29 +352,48 @@
         function updateOFSCField(fieldName, value) {
             addDebugLog(`Actualizando campo ${fieldName} = ${value}`);
             
-            // Intentar múltiples formatos
+            // Formato correcto para OFSC Mobile
+            const updateData = {};
+            updateData[fieldName] = value;
+            
+            // Intentar método 1
             sendMessageToOFSC({
                 method: 'updateActivity',
-                activity: {
-                    [fieldName]: value
-                }
+                activityData: updateData
             });
             
+            // Intentar método 2
             setTimeout(() => {
                 sendMessageToOFSC({
                     method: 'update',
-                    properties: {
-                        [fieldName]: value
-                    }
+                    activity: updateData
                 });
             }, 100);
+            
+            // Intentar método 3
+            setTimeout(() => {
+                sendMessageToOFSC({
+                    method: 'callProcedure',
+                    procedure: 'activity.update',
+                    params: updateData
+                });
+            }, 200);
         }
 
         function closePlugin() {
-            addDebugLog('Cerrando plugin...');
+            addDebugLog('Cerrando plugin y regresando a actividad...');
             sendMessageToOFSC({
                 method: 'close'
             });
+            
+            // Backup: intentar cerrar de otras formas
+            setTimeout(() => {
+                if (window.parent) {
+                    sendMessageToOFSC({
+                        method: 'back'
+                    });
+                }
+            }, 100);
         }
 
         // ============= LLAMADA A API EXTERNA =============
@@ -412,12 +436,22 @@
                 addDebugLog(`Response: ${JSON.stringify(result).substring(0, 100)}`);
                 
                 const message = extractMessage(result);
+                
+                // Actualizar campo en OFSC
                 updateOFSCField(CONFIG.FIELD_NAME, message);
+                
+                // Mostrar éxito
                 showSuccess(message);
                 
+                // Mensaje para el usuario
+                addDebugLog('Guardando en OFSC...');
+                elements.stateDisplay.textContent = 'Guardando respuesta...';
+                
+                // Dar tiempo para que OFSC procese la actualización
                 setTimeout(() => {
+                    addDebugLog('Cerrando y regresando a actividad...');
                     closePlugin();
-                }, CONFIG.AUTO_CLOSE_DELAY);
+                }, 2000); // Reducido a 2 segundos pero con mejor feedback
                 
             } catch (error) {
                 addDebugLog(`✗ Error: ${error.message}`);
@@ -457,6 +491,7 @@
             elements.stateDisplay.textContent = 'Completado';
             elements.resultMessage.textContent = message;
             elements.result.style.display = 'block';
+            elements.btnClose.style.display = 'block'; // Mostrar botón de cerrar
             addDebugLog(`✓ Éxito: ${message}`);
         }
 
@@ -475,9 +510,17 @@
             pluginState.attempts = 0;
             pluginState.initialized = false;
             elements.btnRetry.style.display = 'none';
+            elements.btnClose.style.display = 'none';
             elements.result.style.display = 'none';
             updateStatus('loading', 'Reintentando...');
             requestActivityData();
+        });
+        
+        // ============= CLOSE BUTTON =============
+        
+        elements.btnClose.addEventListener('click', function() {
+            addDebugLog('Usuario solicitó cerrar plugin');
+            closePlugin();
         });
 
         // ============= INICIALIZACIÓN =============
