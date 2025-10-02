@@ -70,7 +70,7 @@
         }
         
         .info {
-            font-size: 13px;
+            font-size: 12px;
             color: #666;
             margin-top: 15px;
             padding: 10px;
@@ -97,6 +97,40 @@
             margin-bottom: 5px;
             color: #0066cc;
         }
+        
+        .debug-log {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+            font-size: 11px;
+            font-family: monospace;
+            max-height: 200px;
+            overflow-y: auto;
+            color: #333;
+        }
+        
+        .debug-log div {
+            margin: 3px 0;
+            padding: 2px;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .btn-retry {
+            width: 100%;
+            padding: 12px;
+            margin-top: 15px;
+            background-color: #0066cc;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        
+        .btn-retry:active {
+            background-color: #0052a3;
+        }
     </style>
 </head>
 <body>
@@ -106,15 +140,22 @@
             Iniciando solicitud Uber...
         </div>
         
-        <div id="info" class="info" style="display:none;">
-            <strong>Activity ID:</strong> <span id="activityIdDisplay">-</span><br>
-            <strong>Estado:</strong> <span id="stateDisplay">Procesando...</span>
+        <div id="info" class="info">
+            <strong>Activity ID:</strong> <span id="activityIdDisplay">Esperando...</span><br>
+            <strong>Estado:</strong> <span id="stateDisplay">Conectando con OFSC...</span><br>
+            <strong>Intentos:</strong> <span id="attemptsDisplay">0</span>
         </div>
         
         <div id="result" class="result" style="display:none;">
             <strong>Respuesta API:</strong>
             <span id="resultMessage"></span>
         </div>
+        
+        <button id="btnRetry" class="btn-retry" style="display:none;">
+            Reintentar
+        </button>
+        
+        <div id="debugLog" class="debug-log"></div>
     </div>
 
     <script>
@@ -122,15 +163,19 @@
         const CONFIG = {
             API_URL: 'https://devwebhook.ialeo.shop/webhook/etb-help-request',
             API_KEY: 'etb_2025_prd_9f8e7d6c5b4a3210fedcba0987654321',
-            FIELD_NAME: 'resp_uberizacion', // Campo donde se guardará la respuesta
+            FIELD_NAME: 'resp_uberizacion',
             TIMEOUT: 30000,
-            AUTO_CLOSE_DELAY: 3000 // Cerrar automáticamente después de 3 segundos
+            AUTO_CLOSE_DELAY: 3000,
+            MAX_INIT_ATTEMPTS: 5,
+            RETRY_DELAY: 1000
         };
 
         // ============= ESTADO =============
         let pluginState = {
             activityId: null,
-            activityData: null
+            activityData: null,
+            attempts: 0,
+            initialized: false
         };
 
         // ============= ELEMENTOS DOM =============
@@ -140,106 +185,206 @@
             result: document.getElementById('result'),
             activityIdDisplay: document.getElementById('activityIdDisplay'),
             stateDisplay: document.getElementById('stateDisplay'),
-            resultMessage: document.getElementById('resultMessage')
+            attemptsDisplay: document.getElementById('attemptsDisplay'),
+            resultMessage: document.getElementById('resultMessage'),
+            debugLog: document.getElementById('debugLog'),
+            btnRetry: document.getElementById('btnRetry')
         };
+
+        // ============= DEBUG LOG =============
+        function addDebugLog(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            elements.debugLog.appendChild(logEntry);
+            elements.debugLog.scrollTop = elements.debugLog.scrollHeight;
+            console.log(message);
+        }
 
         // ============= COMUNICACIÓN CON OFSC =============
         
         function sendMessageToOFSC(message) {
-            console.log('[OFSC] Enviando mensaje:', message);
-            if (window.parent) {
+            addDebugLog(`→ OFSC: ${JSON.stringify(message)}`);
+            
+            // Intentar diferentes targets
+            if (window.parent && window.parent !== window) {
                 window.parent.postMessage(message, '*');
+            }
+            if (window.top && window.top !== window) {
+                window.top.postMessage(message, '*');
+            }
+            if (window.opener) {
+                window.opener.postMessage(message, '*');
             }
         }
 
         function requestActivityData() {
-            console.log('[PLUGIN] Solicitando datos de actividad...');
+            pluginState.attempts++;
+            elements.attemptsDisplay.textContent = pluginState.attempts;
+            
+            addDebugLog(`Intento ${pluginState.attempts} de ${CONFIG.MAX_INIT_ATTEMPTS}`);
+            elements.stateDisplay.textContent = `Conectando (intento ${pluginState.attempts})...`;
+            
+            // Método 1: ready con sendInitData
             sendMessageToOFSC({
                 method: 'ready',
                 sendInitData: true
             });
+            
+            // Método 2: init
+            setTimeout(() => {
+                sendMessageToOFSC({
+                    method: 'init'
+                });
+            }, 200);
+            
+            // Método 3: getActivityDetails
+            setTimeout(() => {
+                sendMessageToOFSC({
+                    method: 'getActivityDetails'
+                });
+            }, 400);
+            
+            // Si no recibe respuesta, reintentar
+            if (pluginState.attempts < CONFIG.MAX_INIT_ATTEMPTS && !pluginState.initialized) {
+                setTimeout(() => {
+                    if (!pluginState.initialized) {
+                        requestActivityData();
+                    }
+                }, CONFIG.RETRY_DELAY);
+            } else if (pluginState.attempts >= CONFIG.MAX_INIT_ATTEMPTS && !pluginState.initialized) {
+                // Intentar obtener de query params como último recurso
+                tryGetActivityFromURL();
+            }
+        }
+
+        function tryGetActivityFromURL() {
+            addDebugLog('Intentando obtener Activity ID de URL...');
+            
+            const urlParams = new URLSearchParams(window.location.search);
+            const activityId = urlParams.get('activityId') || 
+                             urlParams.get('aid') || 
+                             urlParams.get('apptid');
+            
+            if (activityId) {
+                addDebugLog(`✓ Activity ID encontrado en URL: ${activityId}`);
+                pluginState.activityId = activityId;
+                pluginState.initialized = true;
+                elements.activityIdDisplay.textContent = activityId;
+                executeUberRequest();
+            } else {
+                addDebugLog('✗ No se encontró Activity ID en URL');
+                showError('No se pudo conectar con OFSC. Verifica la configuración del plugin.');
+                elements.btnRetry.style.display = 'block';
+            }
+        }
+
+        // ============= LISTENER DE MENSAJES OFSC =============
+        
+        window.addEventListener('message', function(event) {
+            addDebugLog(`← Mensaje: ${JSON.stringify(event.data).substring(0, 100)}`);
+            
+            if (!event.data) return;
+            
+            // Intentar extraer activity data de diferentes estructuras
+            let activityData = null;
+            
+            if (event.data.activity) {
+                activityData = event.data.activity;
+            } else if (event.data.activityData) {
+                activityData = event.data.activityData;
+            } else if (event.data.data && event.data.data.activity) {
+                activityData = event.data.data.activity;
+            }
+            
+            if (activityData) {
+                handleActivityData(activityData);
+            }
+            
+            // Procesar métodos específicos
+            if (event.data.method) {
+                switch(event.data.method) {
+                    case 'initEnd':
+                    case 'open':
+                        if (event.data.activity) {
+                            handleActivityData(event.data.activity);
+                        }
+                        break;
+                    case 'updateResult':
+                        addDebugLog('✓ Campo actualizado en OFSC');
+                        break;
+                }
+            }
+        }, false);
+
+        function handleActivityData(activity) {
+            if (pluginState.initialized) return;
+            
+            addDebugLog('✓ Datos de actividad recibidos');
+            pluginState.initialized = true;
+            pluginState.activityData = activity;
+            
+            // Extraer Activity ID de múltiples posibles campos
+            pluginState.activityId = activity.aid || 
+                                     activity.apptid || 
+                                     activity.activityId ||
+                                     activity.id ||
+                                     activity.AID ||
+                                     activity.APPTID;
+            
+            if (pluginState.activityId) {
+                addDebugLog(`✓ Activity ID: ${pluginState.activityId}`);
+                elements.activityIdDisplay.textContent = pluginState.activityId;
+                elements.stateDisplay.textContent = 'Conectado';
+                executeUberRequest();
+            } else {
+                addDebugLog('✗ No se encontró Activity ID en los datos');
+                showError('Activity ID no encontrado en los datos de OFSC');
+                elements.btnRetry.style.display = 'block';
+            }
         }
 
         function updateOFSCField(fieldName, value) {
-            console.log('[OFSC] Actualizando campo:', fieldName, '=', value);
+            addDebugLog(`Actualizando campo ${fieldName} = ${value}`);
+            
+            // Intentar múltiples formatos
             sendMessageToOFSC({
                 method: 'updateActivity',
                 activity: {
                     [fieldName]: value
                 }
             });
+            
+            setTimeout(() => {
+                sendMessageToOFSC({
+                    method: 'update',
+                    properties: {
+                        [fieldName]: value
+                    }
+                });
+            }, 100);
         }
 
         function closePlugin() {
-            console.log('[PLUGIN] Cerrando plugin...');
+            addDebugLog('Cerrando plugin...');
             sendMessageToOFSC({
                 method: 'close'
             });
         }
 
-        // ============= LISTENER DE MENSAJES OFSC =============
-        
-        window.addEventListener('message', function(event) {
-            console.log('[OFSC] Mensaje recibido:', event.data);
-            
-            if (!event.data || !event.data.method) return;
-
-            switch(event.data.method) {
-                case 'initEnd':
-                    handleInit(event.data);
-                    break;
-                case 'open':
-                    handleInit(event.data);
-                    break;
-                case 'updateResult':
-                    console.log('[OFSC] Campo actualizado exitosamente');
-                    break;
-            }
-        });
-
-        function handleInit(data) {
-            console.log('[PLUGIN] Datos de inicialización recibidos:', data);
-            
-            if (data.activity) {
-                pluginState.activityData = data.activity;
-                
-                // Obtener Activity ID
-                pluginState.activityId = data.activity.aid || 
-                                         data.activity.apptid || 
-                                         data.activity.activityId;
-                
-                console.log('[PLUGIN] Activity ID:', pluginState.activityId);
-                
-                // Mostrar información
-                elements.activityIdDisplay.textContent = pluginState.activityId || 'No disponible';
-                elements.info.style.display = 'block';
-                
-                // Ejecutar llamada automáticamente
-                if (pluginState.activityId) {
-                    executeUberRequest();
-                } else {
-                    showError('No se pudo obtener el Activity ID');
-                }
-            } else {
-                showError('No se recibieron datos de la actividad');
-            }
-        }
-
         // ============= LLAMADA A API EXTERNA =============
         
         async function executeUberRequest() {
-            console.log('[API] Iniciando llamada a API externa...');
-            
+            addDebugLog('Iniciando llamada a API...');
             updateStatus('loading', 'Llamando a API Uber...');
             elements.stateDisplay.textContent = 'Enviando solicitud...';
             
             try {
                 const url = `${CONFIG.API_URL}?activityId=${pluginState.activityId}`;
+                addDebugLog(`URL: ${url}`);
                 
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), CONFIG.TIMEOUT);
-                
-                console.log('[API] URL:', url);
                 
                 const response = await fetch(url, {
                     method: 'POST',
@@ -257,73 +402,42 @@
                 
                 clearTimeout(timeoutId);
                 
-                console.log('[API] Response status:', response.status);
+                addDebugLog(`Response status: ${response.status}`);
                 
                 if (!response.ok) {
-                    throw new Error(`Error HTTP ${response.status}: ${response.statusText}`);
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
                 
                 const result = await response.json();
-                console.log('[API] Response data:', result);
+                addDebugLog(`Response: ${JSON.stringify(result).substring(0, 100)}`);
                 
-                // Extraer el mensaje de la respuesta
                 const message = extractMessage(result);
-                console.log('[API] Mensaje extraído:', message);
-                
-                // Actualizar campo en OFSC
                 updateOFSCField(CONFIG.FIELD_NAME, message);
-                
-                // Mostrar éxito
                 showSuccess(message);
                 
-                // Cerrar automáticamente
                 setTimeout(() => {
                     closePlugin();
                 }, CONFIG.AUTO_CLOSE_DELAY);
                 
             } catch (error) {
-                console.error('[API] Error:', error);
+                addDebugLog(`✗ Error: ${error.message}`);
                 
-                let errorMessage = 'Error desconocido';
+                let errorMessage = error.name === 'AbortError' 
+                    ? 'Tiempo de espera agotado' 
+                    : error.message;
                 
-                if (error.name === 'AbortError') {
-                    errorMessage = 'Tiempo de espera agotado';
-                } else if (error.message) {
-                    errorMessage = error.message;
-                }
-                
-                // Actualizar campo con error
                 updateOFSCField(CONFIG.FIELD_NAME, `ERROR: ${errorMessage}`);
-                
                 showError(errorMessage);
+                elements.btnRetry.style.display = 'block';
             }
         }
 
-        // ============= EXTRACCIÓN DE MENSAJE =============
-        
         function extractMessage(apiResponse) {
-            // Intentar extraer el mensaje de diferentes estructuras de respuesta
-            if (typeof apiResponse === 'string') {
-                return apiResponse;
-            }
-            
-            if (apiResponse.message) {
-                return apiResponse.message;
-            }
-            
-            if (apiResponse.data && apiResponse.data.message) {
-                return apiResponse.data.message;
-            }
-            
-            if (apiResponse.result) {
-                return apiResponse.result;
-            }
-            
-            if (apiResponse.status) {
-                return `Status: ${apiResponse.status}`;
-            }
-            
-            // Si no encuentra un campo conocido, devolver JSON stringificado
+            if (typeof apiResponse === 'string') return apiResponse;
+            if (apiResponse.message) return apiResponse.message;
+            if (apiResponse.data && apiResponse.data.message) return apiResponse.data.message;
+            if (apiResponse.result) return apiResponse.result;
+            if (apiResponse.status) return `Status: ${apiResponse.status}`;
             return JSON.stringify(apiResponse);
         }
 
@@ -331,7 +445,6 @@
         
         function updateStatus(type, message) {
             elements.status.className = `status ${type}`;
-            
             if (type === 'loading') {
                 elements.status.innerHTML = `<span class="loader"></span>${message}`;
             } else {
@@ -340,36 +453,41 @@
         }
 
         function showSuccess(message) {
-            updateStatus('success', '✓ Solicitud completada exitosamente');
+            updateStatus('success', '✓ Solicitud completada');
             elements.stateDisplay.textContent = 'Completado';
-            
             elements.resultMessage.textContent = message;
             elements.result.style.display = 'block';
-            
-            console.log('[PLUGIN] Éxito - Mensaje guardado en campo:', CONFIG.FIELD_NAME);
+            addDebugLog(`✓ Éxito: ${message}`);
         }
 
         function showError(errorMessage) {
             updateStatus('error', `✗ Error: ${errorMessage}`);
             elements.stateDisplay.textContent = 'Error';
-            
             elements.resultMessage.textContent = errorMessage;
             elements.result.style.display = 'block';
             elements.result.style.backgroundColor = '#fee';
             elements.result.style.borderLeftColor = '#c00';
-            
-            console.error('[PLUGIN] Error:', errorMessage);
-            
-            // No cerrar automáticamente en caso de error
         }
+
+        // ============= RETRY BUTTON =============
+        
+        elements.btnRetry.addEventListener('click', function() {
+            pluginState.attempts = 0;
+            pluginState.initialized = false;
+            elements.btnRetry.style.display = 'none';
+            elements.result.style.display = 'none';
+            updateStatus('loading', 'Reintentando...');
+            requestActivityData();
+        });
 
         // ============= INICIALIZACIÓN =============
         
-        console.log('[PLUGIN] ===== UBER PLUGIN INICIADO =====');
-        console.log('[PLUGIN] Versión: 1.0');
-        console.log('[PLUGIN] Campo destino:', CONFIG.FIELD_NAME);
+        addDebugLog('===== UBER PLUGIN INICIADO =====');
+        addDebugLog(`Versión: 2.0 (Mobile Enhanced)`);
+        addDebugLog(`Campo destino: ${CONFIG.FIELD_NAME}`);
+        addDebugLog(`User Agent: ${navigator.userAgent.substring(0, 50)}`);
         
-        // Solicitar datos de la actividad
+        // Iniciar proceso de conexión
         requestActivityData();
     </script>
 </body>
