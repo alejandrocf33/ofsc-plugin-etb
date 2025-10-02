@@ -70,50 +70,18 @@
         }
         
         .info {
-            font-size: 12px;
-            color: #666;
-            margin-top: 15px;
-            padding: 10px;
+            font-size: 14px;
+            color: #333;
+            margin-top: 0;
+            padding: 15px;
             background-color: #f8f9fa;
             border-radius: 6px;
         }
         
         .info strong {
             color: #333;
-        }
-        
-        .result {
-            margin-top: 15px;
-            padding: 12px;
-            background-color: #e7f3ff;
-            border-left: 4px solid #0066cc;
-            border-radius: 4px;
-            font-size: 13px;
-            word-break: break-word;
-        }
-        
-        .result strong {
-            display: block;
-            margin-bottom: 5px;
-            color: #0066cc;
-        }
-        
-        .debug-log {
-            margin-top: 15px;
-            padding: 10px;
-            background-color: #f0f0f0;
-            border-radius: 4px;
-            font-size: 11px;
-            font-family: monospace;
-            max-height: 200px;
-            overflow-y: auto;
-            color: #333;
-        }
-        
-        .debug-log div {
-            margin: 3px 0;
-            padding: 2px;
-            border-bottom: 1px solid #ddd;
+            display: inline-block;
+            min-width: 100px;
         }
         
         .btn-retry {
@@ -186,23 +154,14 @@
         const elements = {
             status: document.getElementById('status'),
             info: document.getElementById('info'),
-            result: document.getElementById('result'),
             activityIdDisplay: document.getElementById('activityIdDisplay'),
             stateDisplay: document.getElementById('stateDisplay'),
-            attemptsDisplay: document.getElementById('attemptsDisplay'),
-            resultMessage: document.getElementById('resultMessage'),
-            debugLog: document.getElementById('debugLog'),
-            btnRetry: document.getElementById('btnRetry'),
-            btnClose: document.getElementById('btnClose')
+            btnRetry: document.getElementById('btnRetry')
         };
 
         // ============= DEBUG LOG =============
         function addDebugLog(message) {
-            const timestamp = new Date().toLocaleTimeString();
-            const logEntry = document.createElement('div');
-            logEntry.textContent = `[${timestamp}] ${message}`;
-            elements.debugLog.appendChild(logEntry);
-            elements.debugLog.scrollTop = elements.debugLog.scrollHeight;
+            // Solo log en consola, no visible en UI
             console.log(message);
         }
 
@@ -225,10 +184,9 @@
 
         function requestActivityData() {
             pluginState.attempts++;
-            elements.attemptsDisplay.textContent = pluginState.attempts;
             
             addDebugLog(`Intento ${pluginState.attempts} de ${CONFIG.MAX_INIT_ATTEMPTS}`);
-            elements.stateDisplay.textContent = `Conectando (intento ${pluginState.attempts})...`;
+            elements.stateDisplay.textContent = 'Solicitud enviada';
             
             // Método 1: ready con sendInitData
             sendMessageToOFSC({
@@ -340,44 +298,18 @@
             if (pluginState.activityId) {
                 addDebugLog(`✓ Activity ID: ${pluginState.activityId}`);
                 elements.activityIdDisplay.textContent = pluginState.activityId;
-                elements.stateDisplay.textContent = 'Conectado';
+                elements.stateDisplay.textContent = 'Solicitud enviada';
                 executeUberRequest();
             } else {
                 addDebugLog('✗ No se encontró Activity ID en los datos');
-                showError('Activity ID no encontrado en los datos de OFSC');
+                showError('Activity ID no encontrado');
                 elements.btnRetry.style.display = 'block';
             }
         }
 
         function updateOFSCField(fieldName, value) {
-            addDebugLog(`Actualizando campo ${fieldName} = ${value}`);
-            
-            // Formato correcto para OFSC Mobile
-            const updateData = {};
-            updateData[fieldName] = value;
-            
-            // Intentar método 1
-            sendMessageToOFSC({
-                method: 'updateActivity',
-                activityData: updateData
-            });
-            
-            // Intentar método 2
-            setTimeout(() => {
-                sendMessageToOFSC({
-                    method: 'update',
-                    activity: updateData
-                });
-            }, 100);
-            
-            // Intentar método 3
-            setTimeout(() => {
-                sendMessageToOFSC({
-                    method: 'callProcedure',
-                    procedure: 'activity.update',
-                    params: updateData
-                });
-            }, 200);
+            // Esta función ya no se usa pero la dejamos por si se necesita en el futuro
+            addDebugLog(`Nota: El campo debe ser actualizado por el backend`);
         }
 
         function closePlugin() {
@@ -400,8 +332,8 @@
         
         async function executeUberRequest() {
             addDebugLog('Iniciando llamada a API...');
-            updateStatus('loading', 'Llamando a API Uber...');
-            elements.stateDisplay.textContent = 'Enviando solicitud...';
+            updateStatus('loading', 'Enviando solicitud Uber...');
+            elements.stateDisplay.textContent = 'Solicitud enviada';
             
             try {
                 const url = `${CONFIG.API_URL}?activityId=${pluginState.activityId}`;
@@ -435,23 +367,14 @@
                 const result = await response.json();
                 addDebugLog(`Response: ${JSON.stringify(result).substring(0, 100)}`);
                 
-                const message = extractMessage(result);
-                
-                // Actualizar campo en OFSC
-                updateOFSCField(CONFIG.FIELD_NAME, message);
-                
                 // Mostrar éxito
-                showSuccess(message);
+                showSuccess();
                 
-                // Mensaje para el usuario
-                addDebugLog('Guardando en OFSC...');
-                elements.stateDisplay.textContent = 'Guardando respuesta...';
-                
-                // Dar tiempo para que OFSC procese la actualización
+                // Cerrar automáticamente después de 2 segundos
                 setTimeout(() => {
-                    addDebugLog('Cerrando y regresando a actividad...');
+                    addDebugLog('Cerrando plugin...');
                     closePlugin();
-                }, 2000); // Reducido a 2 segundos pero con mejor feedback
+                }, 2000);
                 
             } catch (error) {
                 addDebugLog(`✗ Error: ${error.message}`);
@@ -460,7 +383,6 @@
                     ? 'Tiempo de espera agotado' 
                     : error.message;
                 
-                updateOFSCField(CONFIG.FIELD_NAME, `ERROR: ${errorMessage}`);
                 showError(errorMessage);
                 elements.btnRetry.style.display = 'block';
             }
@@ -486,22 +408,15 @@
             }
         }
 
-        function showSuccess(message) {
+        function showSuccess() {
             updateStatus('success', '✓ Solicitud completada');
-            elements.stateDisplay.textContent = 'Completado';
-            elements.resultMessage.textContent = message;
-            elements.result.style.display = 'block';
-            elements.btnClose.style.display = 'block'; // Mostrar botón de cerrar
-            addDebugLog(`✓ Éxito: ${message}`);
+            elements.stateDisplay.textContent = 'Solicitud completada';
+            addDebugLog('✓ Éxito');
         }
 
         function showError(errorMessage) {
             updateStatus('error', `✗ Error: ${errorMessage}`);
-            elements.stateDisplay.textContent = 'Error';
-            elements.resultMessage.textContent = errorMessage;
-            elements.result.style.display = 'block';
-            elements.result.style.backgroundColor = '#fee';
-            elements.result.style.borderLeftColor = '#c00';
+            elements.stateDisplay.textContent = 'Error en la solicitud';
         }
 
         // ============= RETRY BUTTON =============
@@ -510,17 +425,8 @@
             pluginState.attempts = 0;
             pluginState.initialized = false;
             elements.btnRetry.style.display = 'none';
-            elements.btnClose.style.display = 'none';
-            elements.result.style.display = 'none';
             updateStatus('loading', 'Reintentando...');
             requestActivityData();
-        });
-        
-        // ============= CLOSE BUTTON =============
-        
-        elements.btnClose.addEventListener('click', function() {
-            addDebugLog('Usuario solicitó cerrar plugin');
-            closePlugin();
         });
 
         // ============= INICIALIZACIÓN =============
