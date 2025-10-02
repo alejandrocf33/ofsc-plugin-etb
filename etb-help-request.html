@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ETB Help Request Plugin</title>
+    <title>Uber Plugin</title>
     <style>
         * {
             margin: 0;
@@ -13,106 +13,54 @@
         
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-            padding: 15px;
+            padding: 20px;
             background-color: #f5f5f5;
         }
         
         .container {
-            max-width: 600px;
+            max-width: 400px;
             margin: 0 auto;
-        }
-        
-        .field-group {
             background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .status {
             padding: 15px;
-            margin-bottom: 15px;
+            margin-bottom: 20px;
             border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        
-        label {
-            display: block;
-            font-weight: 600;
-            margin-bottom: 8px;
-            color: #333;
             font-size: 14px;
+            text-align: center;
         }
         
-        input, select, textarea {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            font-size: 14px;
-            font-family: inherit;
+        .status.loading {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
         }
         
-        textarea {
-            min-height: 80px;
-            resize: vertical;
-        }
-        
-        .btn-container {
-            margin-top: 20px;
-        }
-        
-        .btn-submit {
-            width: 100%;
-            padding: 14px;
-            background-color: #0066cc;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background-color 0.3s;
-        }
-        
-        .btn-submit:hover {
-            background-color: #0052a3;
-        }
-        
-        .btn-submit:disabled {
-            background-color: #ccc;
-            cursor: not-allowed;
-        }
-        
-        .status-message {
-            padding: 12px;
-            margin: 15px 0;
-            border-radius: 6px;
-            font-size: 14px;
-            display: none;
-        }
-        
-        .status-message.success {
+        .status.success {
             background-color: #d4edda;
             color: #155724;
             border: 1px solid #c3e6cb;
         }
         
-        .status-message.error {
+        .status.error {
             background-color: #f8d7da;
             color: #721c24;
             border: 1px solid #f5c6cb;
         }
         
-        .status-message.loading {
-            background-color: #d1ecf1;
-            color: #0c5460;
-            border: 1px solid #bee5eb;
-        }
-        
         .loader {
             display: inline-block;
-            width: 16px;
-            height: 16px;
+            width: 20px;
+            height: 20px;
             border: 3px solid #f3f3f3;
-            border-top: 3px solid #0066cc;
+            border-top: 3px solid #ff9800;
             border-radius: 50%;
             animation: spin 1s linear infinite;
-            margin-right: 8px;
+            margin-right: 10px;
             vertical-align: middle;
         }
         
@@ -121,132 +69,178 @@
             100% { transform: rotate(360deg); }
         }
         
-        .info-text {
-            font-size: 12px;
+        .info {
+            font-size: 13px;
             color: #666;
-            margin-top: 5px;
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 6px;
+        }
+        
+        .info strong {
+            color: #333;
+        }
+        
+        .result {
+            margin-top: 15px;
+            padding: 12px;
+            background-color: #e7f3ff;
+            border-left: 4px solid #0066cc;
+            border-radius: 4px;
+            font-size: 13px;
+            word-break: break-word;
+        }
+        
+        .result strong {
+            display: block;
+            margin-bottom: 5px;
+            color: #0066cc;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div id="statusMessage" class="status-message"></div>
-        
-        <div class="field-group">
-            <label for="activityId">Activity ID *</label>
-            <input type="text" id="activityId" readonly>
-            <div class="info-text">Se obtiene automáticamente de OFSC</div>
+        <div id="status" class="status loading">
+            <span class="loader"></span>
+            Iniciando solicitud Uber...
         </div>
         
-        <div class="field-group">
-            <label for="customField">Campo Personalizado</label>
-            <input type="text" id="customField" placeholder="Información adicional">
+        <div id="info" class="info" style="display:none;">
+            <strong>Activity ID:</strong> <span id="activityIdDisplay">-</span><br>
+            <strong>Estado:</strong> <span id="stateDisplay">Procesando...</span>
         </div>
         
-        <div class="field-group">
-            <label for="notes">Notas</label>
-            <textarea id="notes" placeholder="Agrega notas o comentarios"></textarea>
-        </div>
-        
-        <div class="btn-container">
-            <button id="btnSubmit" class="btn-submit">
-                Enviar Solicitud de Ayuda
-            </button>
+        <div id="result" class="result" style="display:none;">
+            <strong>Respuesta API:</strong>
+            <span id="resultMessage"></span>
         </div>
     </div>
 
     <script>
-        // Configuración del Plugin
+        // ============= CONFIGURACIÓN =============
         const CONFIG = {
             API_URL: 'https://devwebhook.ialeo.shop/webhook/etb-help-request',
             API_KEY: 'etb_2025_prd_9f8e7d6c5b4a3210fedcba0987654321',
-            TIMEOUT: 30000 // 30 segundos
+            FIELD_NAME: 'resp_uberizacion', // Campo donde se guardará la respuesta
+            TIMEOUT: 30000,
+            AUTO_CLOSE_DELAY: 3000 // Cerrar automáticamente después de 3 segundos
         };
 
-        // Estado global del plugin
+        // ============= ESTADO =============
         let pluginState = {
-            activityData: null,
-            isLoading: false
+            activityId: null,
+            activityData: null
         };
 
-        // Elementos DOM
+        // ============= ELEMENTOS DOM =============
         const elements = {
-            activityId: document.getElementById('activityId'),
-            customField: document.getElementById('customField'),
-            notes: document.getElementById('notes'),
-            btnSubmit: document.getElementById('btnSubmit'),
-            statusMessage: document.getElementById('statusMessage')
+            status: document.getElementById('status'),
+            info: document.getElementById('info'),
+            result: document.getElementById('result'),
+            activityIdDisplay: document.getElementById('activityIdDisplay'),
+            stateDisplay: document.getElementById('stateDisplay'),
+            resultMessage: document.getElementById('resultMessage')
         };
 
         // ============= COMUNICACIÓN CON OFSC =============
         
         function sendMessageToOFSC(message) {
-            console.log('Enviando mensaje a OFSC:', message);
+            console.log('[OFSC] Enviando mensaje:', message);
             if (window.parent) {
                 window.parent.postMessage(message, '*');
             }
         }
 
         function requestActivityData() {
+            console.log('[PLUGIN] Solicitando datos de actividad...');
             sendMessageToOFSC({
                 method: 'ready',
                 sendInitData: true
             });
         }
 
-        // Listener para mensajes de OFSC
+        function updateOFSCField(fieldName, value) {
+            console.log('[OFSC] Actualizando campo:', fieldName, '=', value);
+            sendMessageToOFSC({
+                method: 'updateActivity',
+                activity: {
+                    [fieldName]: value
+                }
+            });
+        }
+
+        function closePlugin() {
+            console.log('[PLUGIN] Cerrando plugin...');
+            sendMessageToOFSC({
+                method: 'close'
+            });
+        }
+
+        // ============= LISTENER DE MENSAJES OFSC =============
+        
         window.addEventListener('message', function(event) {
-            console.log('Mensaje recibido:', event.data);
+            console.log('[OFSC] Mensaje recibido:', event.data);
             
             if (!event.data || !event.data.method) return;
 
             switch(event.data.method) {
                 case 'initEnd':
-                    handleInitEnd(event.data);
+                    handleInit(event.data);
                     break;
                 case 'open':
-                    handleOpen(event.data);
+                    handleInit(event.data);
+                    break;
+                case 'updateResult':
+                    console.log('[OFSC] Campo actualizado exitosamente');
                     break;
             }
         });
 
-        function handleInitEnd(data) {
-            console.log('Plugin inicializado:', data);
-            if (data.activity) {
-                pluginState.activityData = data.activity;
-                populateActivityData(data.activity);
-            }
-        }
-
-        function handleOpen(data) {
-            console.log('Plugin abierto:', data);
-            if (data.activity) {
-                pluginState.activityData = data.activity;
-                populateActivityData(data.activity);
-            }
-        }
-
-        function populateActivityData(activity) {
-            // Llenar el Activity ID
-            if (activity.aid) {
-                elements.activityId.value = activity.aid;
-            } else if (activity.apptid) {
-                elements.activityId.value = activity.apptid;
-            }
+        function handleInit(data) {
+            console.log('[PLUGIN] Datos de inicialización recibidos:', data);
             
-            // Puedes mapear otros campos de OFSC si los necesitas
-            console.log('Datos de actividad cargados:', activity);
+            if (data.activity) {
+                pluginState.activityData = data.activity;
+                
+                // Obtener Activity ID
+                pluginState.activityId = data.activity.aid || 
+                                         data.activity.apptid || 
+                                         data.activity.activityId;
+                
+                console.log('[PLUGIN] Activity ID:', pluginState.activityId);
+                
+                // Mostrar información
+                elements.activityIdDisplay.textContent = pluginState.activityId || 'No disponible';
+                elements.info.style.display = 'block';
+                
+                // Ejecutar llamada automáticamente
+                if (pluginState.activityId) {
+                    executeUberRequest();
+                } else {
+                    showError('No se pudo obtener el Activity ID');
+                }
+            } else {
+                showError('No se recibieron datos de la actividad');
+            }
         }
 
         // ============= LLAMADA A API EXTERNA =============
         
-        async function callExternalAPI(activityId, additionalData) {
-            const url = `${CONFIG.API_URL}?activityId=${activityId}`;
+        async function executeUberRequest() {
+            console.log('[API] Iniciando llamada a API externa...');
             
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), CONFIG.TIMEOUT);
+            updateStatus('loading', 'Llamando a API Uber...');
+            elements.stateDisplay.textContent = 'Enviando solicitud...';
             
             try {
+                const url = `${CONFIG.API_URL}?activityId=${pluginState.activityId}`;
+                
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), CONFIG.TIMEOUT);
+                
+                console.log('[API] URL:', url);
+                
                 const response = await fetch(url, {
                     method: 'POST',
                     headers: {
@@ -254,122 +248,129 @@
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        activityId: activityId,
-                        customField: additionalData.customField,
-                        notes: additionalData.notes,
-                        timestamp: new Date().toISOString()
+                        activityId: pluginState.activityId,
+                        timestamp: new Date().toISOString(),
+                        source: 'OFSC Mobile Plugin'
                     }),
                     signal: controller.signal
                 });
                 
                 clearTimeout(timeoutId);
                 
+                console.log('[API] Response status:', response.status);
+                
                 if (!response.ok) {
-                    throw new Error(`Error HTTP: ${response.status} - ${response.statusText}`);
+                    throw new Error(`Error HTTP ${response.status}: ${response.statusText}`);
                 }
                 
                 const result = await response.json();
-                return { success: true, data: result };
+                console.log('[API] Response data:', result);
+                
+                // Extraer el mensaje de la respuesta
+                const message = extractMessage(result);
+                console.log('[API] Mensaje extraído:', message);
+                
+                // Actualizar campo en OFSC
+                updateOFSCField(CONFIG.FIELD_NAME, message);
+                
+                // Mostrar éxito
+                showSuccess(message);
+                
+                // Cerrar automáticamente
+                setTimeout(() => {
+                    closePlugin();
+                }, CONFIG.AUTO_CLOSE_DELAY);
                 
             } catch (error) {
-                clearTimeout(timeoutId);
+                console.error('[API] Error:', error);
+                
+                let errorMessage = 'Error desconocido';
                 
                 if (error.name === 'AbortError') {
-                    throw new Error('La solicitud ha excedido el tiempo de espera');
+                    errorMessage = 'Tiempo de espera agotado';
+                } else if (error.message) {
+                    errorMessage = error.message;
                 }
                 
-                throw error;
+                // Actualizar campo con error
+                updateOFSCField(CONFIG.FIELD_NAME, `ERROR: ${errorMessage}`);
+                
+                showError(errorMessage);
             }
         }
 
-        // ============= UI Y MANEJO DE EVENTOS =============
+        // ============= EXTRACCIÓN DE MENSAJE =============
         
-        function showMessage(message, type) {
-            elements.statusMessage.className = `status-message ${type}`;
+        function extractMessage(apiResponse) {
+            // Intentar extraer el mensaje de diferentes estructuras de respuesta
+            if (typeof apiResponse === 'string') {
+                return apiResponse;
+            }
+            
+            if (apiResponse.message) {
+                return apiResponse.message;
+            }
+            
+            if (apiResponse.data && apiResponse.data.message) {
+                return apiResponse.data.message;
+            }
+            
+            if (apiResponse.result) {
+                return apiResponse.result;
+            }
+            
+            if (apiResponse.status) {
+                return `Status: ${apiResponse.status}`;
+            }
+            
+            // Si no encuentra un campo conocido, devolver JSON stringificado
+            return JSON.stringify(apiResponse);
+        }
+
+        // ============= UI HELPERS =============
+        
+        function updateStatus(type, message) {
+            elements.status.className = `status ${type}`;
             
             if (type === 'loading') {
-                elements.statusMessage.innerHTML = `<span class="loader"></span>${message}`;
+                elements.status.innerHTML = `<span class="loader"></span>${message}`;
             } else {
-                elements.statusMessage.innerHTML = message;
-            }
-            
-            elements.statusMessage.style.display = 'block';
-            
-            if (type !== 'loading') {
-                setTimeout(() => {
-                    elements.statusMessage.style.display = 'none';
-                }, 5000);
+                elements.status.innerHTML = message;
             }
         }
 
-        function setLoading(loading) {
-            pluginState.isLoading = loading;
-            elements.btnSubmit.disabled = loading;
+        function showSuccess(message) {
+            updateStatus('success', '✓ Solicitud completada exitosamente');
+            elements.stateDisplay.textContent = 'Completado';
             
-            if (loading) {
-                elements.btnSubmit.innerHTML = '<span class="loader"></span>Enviando...';
-            } else {
-                elements.btnSubmit.innerHTML = 'Enviar Solicitud de Ayuda';
-            }
+            elements.resultMessage.textContent = message;
+            elements.result.style.display = 'block';
+            
+            console.log('[PLUGIN] Éxito - Mensaje guardado en campo:', CONFIG.FIELD_NAME);
         }
 
-        async function handleSubmit() {
-            const activityId = elements.activityId.value;
+        function showError(errorMessage) {
+            updateStatus('error', `✗ Error: ${errorMessage}`);
+            elements.stateDisplay.textContent = 'Error';
             
-            if (!activityId) {
-                showMessage('Error: No se pudo obtener el Activity ID', 'error');
-                return;
-            }
+            elements.resultMessage.textContent = errorMessage;
+            elements.result.style.display = 'block';
+            elements.result.style.backgroundColor = '#fee';
+            elements.result.style.borderLeftColor = '#c00';
             
-            if (pluginState.isLoading) return;
+            console.error('[PLUGIN] Error:', errorMessage);
             
-            setLoading(true);
-            showMessage('Enviando solicitud...', 'loading');
-            
-            try {
-                const additionalData = {
-                    customField: elements.customField.value,
-                    notes: elements.notes.value
-                };
-                
-                const result = await callExternalAPI(activityId, additionalData);
-                
-                showMessage('✓ Solicitud enviada exitosamente', 'success');
-                
-                // Opcional: Actualizar un campo en OFSC con el resultado
-                updateOFSCProperty('help_request_status', 'sent');
-                
-                // Opcional: Cerrar el plugin después de 2 segundos
-                setTimeout(() => {
-                    sendMessageToOFSC({ method: 'close' });
-                }, 2000);
-                
-            } catch (error) {
-                console.error('Error al enviar solicitud:', error);
-                showMessage(`✗ Error: ${error.message}`, 'error');
-            } finally {
-                setLoading(false);
-            }
+            // No cerrar automáticamente en caso de error
         }
 
-        function updateOFSCProperty(propertyName, value) {
-            sendMessageToOFSC({
-                method: 'updateActivity',
-                activity: {
-                    [propertyName]: value
-                }
-            });
-        }
-
-        // Event Listeners
-        elements.btnSubmit.addEventListener('click', handleSubmit);
-
-        // Inicializar plugin
-        console.log('Plugin cargado, solicitando datos de actividad...');
-        requestActivityData();
+        // ============= INICIALIZACIÓN =============
         
-        // Mensaje inicial
-        showMessage('Cargando datos de la actividad...', 'loading');
+        console.log('[PLUGIN] ===== UBER PLUGIN INICIADO =====');
+        console.log('[PLUGIN] Versión: 1.0');
+        console.log('[PLUGIN] Campo destino:', CONFIG.FIELD_NAME);
+        
+        // Solicitar datos de la actividad
+        requestActivityData();
     </script>
 </body>
 </html>
